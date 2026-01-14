@@ -1,5 +1,5 @@
 # Makefile for Dave's Network Inquisition
-# Development Version: v1.0-dev-2025-01-13
+# Development Version: v1.0-dev-2025-01-14
 
 CC = gcc
 CFLAGS = `pkg-config --cflags gtk4 vte-2.91-gtk4` -Wall -O2

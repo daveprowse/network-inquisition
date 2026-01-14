@@ -1,6 +1,6 @@
 /*
  * Dave's Network Inquisition
- * Development Version: v1.0-dev-2025-01-13
+ * Development Version: v1.0-dev-2025-01-14
  * Website: https://prowse.tech
  */
 
@@ -23,25 +23,34 @@
 typedef struct {
     GtkWidget *window;
     GtkWidget *ip_info_text;
+    GtkWidget *ip_info_frame;
     GtkWidget *route_info_text;
+    GtkWidget *route_info_frame;
     GtkWidget *ping_entry;
     GtkWidget *ping_output;
     GtkWidget *ping_button;
+    GtkWidget *ping_frame;
     GtkWidget *dig_entry;
     GtkWidget *dig_output;
     GtkWidget *dig_button;
+    GtkWidget *dig_frame;
     GtkWidget *network_graph;
     GtkWidget *graph_frame;
     GtkWidget *interface_dropdown;
-    GtkWidget *terminal;
+    GtkWidget *terminal_left;
+    GtkWidget *terminal_right;
     GtkWidget *terminal_frame;
     GtkWidget *main_box;
     GtkWidget *paned;
     GtkWidget *terminal_button_bar;
+    GtkWidget *row1_box;
+    GtkWidget *row2_box;
     
     // Network statistics
     unsigned long long prev_rx_bytes;
     unsigned long long prev_tx_bytes;
+    unsigned long long total_rx_bytes;
+    unsigned long long total_tx_bytes;
     char selected_interface[64];
     
     // Graph data (60 data points for 60 seconds)
@@ -49,12 +58,16 @@ typedef struct {
     double tx_data[60];
     int graph_position;
     
-    // Terminal font size
-    double terminal_font_scale;
+    // Terminal font sizes
+    double terminal_font_scale_left;
+    double terminal_font_scale_right;
     
-    // Graph maximization state
+    // Maximization states
     gboolean graph_maximized;
-    int original_graph_height;
+    gboolean ip_info_maximized;
+    gboolean route_info_maximized;
+    gboolean ping_maximized;
+    gboolean dig_maximized;
     
     guint refresh_timer;
     guint graph_timer;
@@ -77,17 +90,23 @@ static void populate_interface_dropdown(AppData *data);
 static void on_interface_changed(GtkDropDown *dropdown, GParamSpec *pspec, gpointer user_data);
 static void flash_button_green(GtkWidget *button);
 static gboolean reset_button_style(gpointer button);
-static gboolean on_terminal_scroll(GtkEventControllerScroll *controller, double dx, double dy, gpointer user_data);
-static gboolean on_terminal_key(GtkEventControllerKey *controller, guint keyval, guint keycode, GdkModifierType state, gpointer user_data);
 static void on_graph_double_click(GtkGestureClick *gesture, int n_press, double x, double y, gpointer user_data);
+static void on_ip_info_double_click(GtkGestureClick *gesture, int n_press, double x, double y, gpointer user_data);
+static void on_route_info_double_click(GtkGestureClick *gesture, int n_press, double x, double y, gpointer user_data);
+static void on_ping_double_click(GtkGestureClick *gesture, int n_press, double x, double y, gpointer user_data);
+static void on_dig_double_click(GtkGestureClick *gesture, int n_press, double x, double y, gpointer user_data);
 static gboolean check_terminal_visibility(gpointer user_data);
 static void on_terminal_button_clicked(GtkButton *button, gpointer user_data);
+static gboolean on_terminal_scroll_left(GtkEventControllerScroll *controller, double dx, double dy, gpointer user_data);
+static gboolean on_terminal_key_left(GtkEventControllerKey *controller, guint keyval, guint keycode, GdkModifierType state, gpointer user_data);
+static gboolean on_terminal_scroll_right(GtkEventControllerScroll *controller, double dx, double dy, gpointer user_data);
+static gboolean on_terminal_key_right(GtkEventControllerKey *controller, guint keyval, guint keycode, GdkModifierType state, gpointer user_data);
 
 int main(int argc, char **argv) {
     GtkApplication *app;
     int status;
     
-    app = gtk_application_new("org.linux.networking", G_APPLICATION_DEFAULT_FLAGS);
+    app = gtk_application_new("org.prowse.network-inquisition", G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
     status = g_application_run(G_APPLICATION(app), argc, argv);
     g_object_unref(app);
@@ -129,16 +148,24 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(main_scroll), main_box);
     data->main_box = main_box;
     
-    // ROW 1: IP Address Info and IP Route Info (increased height by 50%)
+    // ROW 1: IP Address Info and IP Route Info
     GtkWidget *row1_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
     gtk_widget_set_vexpand(row1_box, TRUE);
     gtk_widget_set_size_request(row1_box, -1, 135);
     gtk_box_append(GTK_BOX(main_box), row1_box);
+    data->row1_box = row1_box;
     
     // IP Address Info
     GtkWidget *ip_frame = gtk_frame_new("📡 IP ADDRESS INFO");
     gtk_widget_set_hexpand(ip_frame, TRUE);
     gtk_box_append(GTK_BOX(row1_box), ip_frame);
+    data->ip_info_frame = ip_frame;
+    
+    // Add double-click gesture to IP info frame
+    GtkGesture *ip_click_gesture = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(ip_click_gesture), GDK_BUTTON_PRIMARY);
+    g_signal_connect(ip_click_gesture, "pressed", G_CALLBACK(on_ip_info_double_click), data);
+    gtk_widget_add_controller(ip_frame, GTK_EVENT_CONTROLLER(ip_click_gesture));
     
     GtkWidget *ip_scroll = gtk_scrolled_window_new();
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(ip_scroll), 
@@ -154,6 +181,13 @@ static void activate(GtkApplication *app, gpointer user_data) {
     GtkWidget *route_frame = gtk_frame_new("🗺️ IP ROUTE INFO");
     gtk_widget_set_hexpand(route_frame, TRUE);
     gtk_box_append(GTK_BOX(row1_box), route_frame);
+    data->route_info_frame = route_frame;
+    
+    // Add double-click gesture to route info frame
+    GtkGesture *route_click_gesture = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(route_click_gesture), GDK_BUTTON_PRIMARY);
+    g_signal_connect(route_click_gesture, "pressed", G_CALLBACK(on_route_info_double_click), data);
+    gtk_widget_add_controller(route_frame, GTK_EVENT_CONTROLLER(route_click_gesture));
     
     GtkWidget *route_scroll = gtk_scrolled_window_new();
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(route_scroll),
@@ -178,11 +212,19 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_paned_set_start_child(GTK_PANED(paned), row2_box);
     gtk_paned_set_resize_start_child(GTK_PANED(paned), TRUE);
     gtk_paned_set_shrink_start_child(GTK_PANED(paned), FALSE);
+    data->row2_box = row2_box;
     
     // PING Tool (on left)
     GtkWidget *ping_frame = gtk_frame_new("📶 PING");
     gtk_widget_set_hexpand(ping_frame, TRUE);
     gtk_box_append(GTK_BOX(row2_box), ping_frame);
+    data->ping_frame = ping_frame;
+    
+    // Add double-click gesture to ping frame
+    GtkGesture *ping_click_gesture = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(ping_click_gesture), GDK_BUTTON_PRIMARY);
+    g_signal_connect(ping_click_gesture, "pressed", G_CALLBACK(on_ping_double_click), data);
+    gtk_widget_add_controller(ping_frame, GTK_EVENT_CONTROLLER(ping_click_gesture));
     
     GtkWidget *ping_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
     gtk_widget_set_margin_start(ping_vbox, 5);
@@ -220,6 +262,13 @@ static void activate(GtkApplication *app, gpointer user_data) {
     GtkWidget *dig_frame = gtk_frame_new("🔍 DIG");
     gtk_widget_set_hexpand(dig_frame, TRUE);
     gtk_box_append(GTK_BOX(row2_box), dig_frame);
+    data->dig_frame = dig_frame;
+    
+    // Add double-click gesture to dig frame
+    GtkGesture *dig_click_gesture = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(dig_click_gesture), GDK_BUTTON_PRIMARY);
+    g_signal_connect(dig_click_gesture, "pressed", G_CALLBACK(on_dig_double_click), data);
+    gtk_widget_add_controller(dig_frame, GTK_EVENT_CONTROLLER(dig_click_gesture));
     
     GtkWidget *dig_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
     gtk_widget_set_margin_start(dig_vbox, 5);
@@ -261,8 +310,6 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_paned_set_resize_end_child(GTK_PANED(paned), TRUE);
     gtk_paned_set_shrink_end_child(GTK_PANED(paned), FALSE);
     data->graph_frame = graph_frame;
-    data->graph_maximized = FALSE;
-    data->original_graph_height = 200;
     
     // Set initial position (300px for PING/DIG)
     gtk_paned_set_position(GTK_PANED(paned), 300);
@@ -322,8 +369,17 @@ static void activate(GtkApplication *app, gpointer user_data) {
         data->tx_data[i] = 0.0;
     }
     data->graph_position = 0;
+    data->total_rx_bytes = 0;
+    data->total_tx_bytes = 0;
     
-    // ROW 4: Terminal
+    // Initialize maximization states
+    data->graph_maximized = FALSE;
+    data->ip_info_maximized = FALSE;
+    data->route_info_maximized = FALSE;
+    data->ping_maximized = FALSE;
+    data->dig_maximized = FALSE;
+    
+    // ROW 4: Split Terminal (left and right)
     GtkWidget *terminal_frame = gtk_frame_new("💻 TERMINAL");
     gtk_widget_set_vexpand(terminal_frame, TRUE);
     gtk_widget_set_size_request(terminal_frame, -1, 250);
@@ -337,30 +393,70 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_widget_set_margin_bottom(terminal_box, 5);
     gtk_frame_set_child(GTK_FRAME(terminal_frame), terminal_box);
     
-    // Create VTE terminal
-    data->terminal = vte_terminal_new();
-    gtk_widget_set_vexpand(data->terminal, TRUE);
-    data->terminal_font_scale = 1.0;
+    // Split terminals horizontally
+    GtkWidget *terminal_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+    gtk_widget_set_vexpand(terminal_hbox, TRUE);
+    gtk_box_append(GTK_BOX(terminal_box), terminal_hbox);
     
-    // Add scroll event controller for Ctrl+Scroll zoom
-    GtkEventController *scroll_controller = gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_VERTICAL);
-    g_signal_connect(scroll_controller, "scroll", G_CALLBACK(on_terminal_scroll), data);
-    gtk_widget_add_controller(data->terminal, scroll_controller);
+    // Left terminal
+    data->terminal_left = vte_terminal_new();
+    gtk_widget_set_hexpand(data->terminal_left, TRUE);
+    gtk_widget_set_vexpand(data->terminal_left, TRUE);
+    data->terminal_font_scale_left = 1.0;
     
-    // Add key event controller for Ctrl+Shift+Plus and Ctrl+Minus zoom
-    GtkEventController *key_controller = gtk_event_controller_key_new();
-    g_signal_connect(key_controller, "key-pressed", G_CALLBACK(on_terminal_key), data);
-    gtk_widget_add_controller(data->terminal, key_controller);
+    // Add scroll event controller for Ctrl+Scroll zoom (left)
+    GtkEventController *scroll_controller_left = gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_VERTICAL);
+    g_signal_connect(scroll_controller_left, "scroll", G_CALLBACK(on_terminal_scroll_left), data);
+    gtk_widget_add_controller(data->terminal_left, scroll_controller_left);
     
-    gtk_box_append(GTK_BOX(terminal_box), data->terminal);
+    // Add key event controller for Ctrl+Plus/Minus zoom (left)
+    GtkEventController *key_controller_left = gtk_event_controller_key_new();
+    g_signal_connect(key_controller_left, "key-pressed", G_CALLBACK(on_terminal_key_left), data);
+    gtk_widget_add_controller(data->terminal_left, key_controller_left);
     
-    // Spawn shell in terminal
+    gtk_box_append(GTK_BOX(terminal_hbox), data->terminal_left);
+    
+    // Right terminal
+    data->terminal_right = vte_terminal_new();
+    gtk_widget_set_hexpand(data->terminal_right, TRUE);
+    gtk_widget_set_vexpand(data->terminal_right, TRUE);
+    data->terminal_font_scale_right = 1.0;
+    
+    // Add scroll event controller for Ctrl+Scroll zoom (right)
+    GtkEventController *scroll_controller_right = gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_VERTICAL);
+    g_signal_connect(scroll_controller_right, "scroll", G_CALLBACK(on_terminal_scroll_right), data);
+    gtk_widget_add_controller(data->terminal_right, scroll_controller_right);
+    
+    // Add key event controller for Ctrl+Plus/Minus zoom (right)
+    GtkEventController *key_controller_right = gtk_event_controller_key_new();
+    g_signal_connect(key_controller_right, "key-pressed", G_CALLBACK(on_terminal_key_right), data);
+    gtk_widget_add_controller(data->terminal_right, key_controller_right);
+    
+    gtk_box_append(GTK_BOX(terminal_hbox), data->terminal_right);
+    
+    // Spawn shell in left terminal
     char **envp = g_get_environ();
     char *shell = vte_get_user_shell();
     char *argv[] = {shell, NULL};
     
     vte_terminal_spawn_async(
-        VTE_TERMINAL(data->terminal),
+        VTE_TERMINAL(data->terminal_left),
+        VTE_PTY_DEFAULT,
+        NULL,           // working directory
+        argv,           // argv
+        envp,           // environment
+        G_SPAWN_DEFAULT,
+        NULL, NULL,     // child setup
+        NULL,           // child setup data destroy
+        -1,             // timeout
+        NULL,           // cancellable
+        NULL,           // callback
+        NULL            // user data
+    );
+    
+    // Spawn shell in right terminal
+    vte_terminal_spawn_async(
+        VTE_TERMINAL(data->terminal_right),
         VTE_PTY_DEFAULT,
         NULL,           // working directory
         argv,           // argv
@@ -584,7 +680,6 @@ static void on_ping_clicked(GtkButton *button, gpointer user_data) {
     gtk_text_buffer_insert(output_buffer, &end, "══════════════════════════════════════\n\n", -1);
     
     // Scroll to end
-    gtk_text_buffer_get_end_iter(output_buffer, &end);
     GtkTextMark *mark = gtk_text_buffer_create_mark(output_buffer, NULL, &end, FALSE);
     gtk_text_view_scroll_to_mark(GTK_TEXT_VIEW(data->ping_output), mark, 0.0, FALSE, 0.0, 0.0);
 }
@@ -633,6 +728,12 @@ static gboolean update_network_graph(gpointer user_data) {
     
     unsigned long long rx_bytes, tx_bytes;
     get_interface_stats(data->selected_interface, &rx_bytes, &tx_bytes);
+    
+    // Initialize totals on first run
+    if (data->total_rx_bytes == 0 && data->total_tx_bytes == 0) {
+        data->total_rx_bytes = rx_bytes;
+        data->total_tx_bytes = tx_bytes;
+    }
     
     // Calculate speeds (bytes per second)
     double rx_speed = 0.0;
@@ -710,14 +811,19 @@ static void network_graph_draw(GtkDrawingArea *area, cairo_t *cr, int width, int
     }
     cairo_stroke(cr);
     
-    // Draw legend and current values
+    // Draw legend and current values with total bytes
     cairo_select_font_face(cr, "monospace", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
-    cairo_set_font_size(cr, 12);
+    cairo_set_font_size(cr, 14);  // Increased from 12
     
-    char legend[256];
+    char legend[512];
     int current_index = (data->graph_position - 1 + 60) % 60;
-    snprintf(legend, sizeof(legend), "↓ RX: %.2f KB/s  ↑ TX: %.2f KB/s  Max: %.2f KB/s",
-             data->rx_data[current_index], data->tx_data[current_index], max_value);
+    double total_rx_gb = data->total_rx_bytes / (1024.0 * 1024.0 * 1024.0);
+    double total_tx_gb = data->total_tx_bytes / (1024.0 * 1024.0 * 1024.0);
+    
+    snprintf(legend, sizeof(legend), 
+             "↓ RX: %.2f KB/s  ↑ TX: %.2f KB/s  Max: %.2f KB/s  |  Total RX: %.2f GB  Total TX: %.2f GB",
+             data->rx_data[current_index], data->tx_data[current_index], max_value,
+             total_rx_gb, total_tx_gb);
     
     cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
     cairo_move_to(cr, 10, 20);
@@ -804,132 +910,235 @@ static gboolean reset_button_style(gpointer button) {
     return G_SOURCE_REMOVE;
 }
 
-static gboolean on_terminal_scroll(GtkEventControllerScroll *controller, double dx, double dy, gpointer user_data) {
+// Graph maximization - 50/50 split with terminal
+static void on_graph_double_click(GtkGestureClick *gesture, int n_press, double x, double y, gpointer user_data) {
+    AppData *data = (AppData *)user_data;
+    
+    if (n_press != 2) return;
+    
+    if (!data->graph_maximized) {
+        data->graph_maximized = TRUE;
+        
+        // Hide IP/Routes and PING/DIG
+        gtk_widget_set_visible(data->row1_box, FALSE);
+        
+        // Hide PING/DIG within paned
+        gtk_widget_set_visible(data->row2_box, FALSE);
+        gtk_paned_set_position(GTK_PANED(data->paned), 0);
+        
+        // Make paned and terminal equal height (50/50)
+        gtk_widget_set_vexpand(data->paned, TRUE);
+        gtk_widget_set_vexpand(data->terminal_frame, TRUE);
+        gtk_widget_set_size_request(data->terminal_frame, -1, -1);
+        
+    } else {
+        data->graph_maximized = FALSE;
+        
+        // Restore everything
+        gtk_widget_set_visible(data->row1_box, TRUE);
+        gtk_widget_set_visible(data->row2_box, TRUE);
+        gtk_paned_set_position(GTK_PANED(data->paned), 300);
+        
+        // Restore terminal to fixed height
+        gtk_widget_set_size_request(data->terminal_frame, -1, 250);
+    }
+}
+
+// IP Info maximization
+static void on_ip_info_double_click(GtkGestureClick *gesture, int n_press, double x, double y, gpointer user_data) {
+    AppData *data = (AppData *)user_data;
+    if (n_press != 2) return;
+    
+    if (!data->ip_info_maximized) {
+        data->ip_info_maximized = TRUE;
+        
+        // Hide everything except IP info and terminal
+        gtk_widget_set_visible(data->route_info_frame, FALSE);
+        gtk_widget_set_visible(data->paned, FALSE);
+        
+    } else {
+        data->ip_info_maximized = FALSE;
+        
+        // Restore everything
+        gtk_widget_set_visible(data->route_info_frame, TRUE);
+        gtk_widget_set_visible(data->paned, TRUE);
+    }
+}
+
+// Route Info maximization
+static void on_route_info_double_click(GtkGestureClick *gesture, int n_press, double x, double y, gpointer user_data) {
+    AppData *data = (AppData *)user_data;
+    if (n_press != 2) return;
+    
+    if (!data->route_info_maximized) {
+        data->route_info_maximized = TRUE;
+        
+        // Hide everything except Route info and terminal
+        gtk_widget_set_visible(data->ip_info_frame, FALSE);
+        gtk_widget_set_visible(data->paned, FALSE);
+        
+    } else {
+        data->route_info_maximized = FALSE;
+        
+        // Restore everything
+        gtk_widget_set_visible(data->ip_info_frame, TRUE);
+        gtk_widget_set_visible(data->paned, TRUE);
+    }
+}
+
+// PING maximization
+static void on_ping_double_click(GtkGestureClick *gesture, int n_press, double x, double y, gpointer user_data) {
+    AppData *data = (AppData *)user_data;
+    if (n_press != 2) return;
+    
+    if (!data->ping_maximized) {
+        data->ping_maximized = TRUE;
+        
+        // Hide everything except paned (which contains ping) and terminal
+        gtk_widget_set_visible(data->row1_box, FALSE);
+        gtk_widget_set_visible(data->dig_frame, FALSE);
+        gtk_widget_set_visible(data->graph_frame, FALSE);
+        
+    } else {
+        data->ping_maximized = FALSE;
+        
+        // Restore everything
+        gtk_widget_set_visible(data->row1_box, TRUE);
+        gtk_widget_set_visible(data->dig_frame, TRUE);
+        gtk_widget_set_visible(data->graph_frame, TRUE);
+    }
+}
+
+// DIG maximization
+static void on_dig_double_click(GtkGestureClick *gesture, int n_press, double x, double y, gpointer user_data) {
+    AppData *data = (AppData *)user_data;
+    if (n_press != 2) return;
+    
+    if (!data->dig_maximized) {
+        data->dig_maximized = TRUE;
+        
+        // Hide everything except paned (which contains dig) and terminal
+        gtk_widget_set_visible(data->row1_box, FALSE);
+        gtk_widget_set_visible(data->ping_frame, FALSE);
+        gtk_widget_set_visible(data->graph_frame, FALSE);
+        
+    } else {
+        data->dig_maximized = FALSE;
+        
+        // Restore everything
+        gtk_widget_set_visible(data->row1_box, TRUE);
+        gtk_widget_set_visible(data->ping_frame, TRUE);
+        gtk_widget_set_visible(data->graph_frame, TRUE);
+    }
+}
+
+// Terminal scroll and key handlers for left terminal
+static gboolean on_terminal_scroll_left(GtkEventControllerScroll *controller, double dx, double dy, gpointer user_data) {
     AppData *data = (AppData *)user_data;
     GdkModifierType state = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(controller));
     
-    // Check if Ctrl is pressed
     if (state & GDK_CONTROL_MASK) {
-        // Zoom in/out based on scroll direction
         if (dy < 0) {
-            // Scroll up - zoom in
-            data->terminal_font_scale *= 1.1;
+            data->terminal_font_scale_left *= 1.1;
         } else {
-            // Scroll down - zoom out
-            data->terminal_font_scale *= 0.9;
+            data->terminal_font_scale_left *= 0.9;
         }
         
-        // Clamp scale between 0.5 and 3.0
-        if (data->terminal_font_scale < 0.5) data->terminal_font_scale = 0.5;
-        if (data->terminal_font_scale > 3.0) data->terminal_font_scale = 3.0;
+        if (data->terminal_font_scale_left < 0.5) data->terminal_font_scale_left = 0.5;
+        if (data->terminal_font_scale_left > 3.0) data->terminal_font_scale_left = 3.0;
         
-        // Apply new font scale
-        vte_terminal_set_font_scale(VTE_TERMINAL(data->terminal), data->terminal_font_scale);
-        
-        return TRUE; // Event handled
-    }
-    
-    return FALSE; // Let normal scrolling happen
-}
-
-static gboolean on_terminal_key(GtkEventControllerKey *controller, guint keyval, guint keycode, GdkModifierType state, gpointer user_data) {
-    AppData *data = (AppData *)user_data;
-    
-    // Check for Ctrl+Shift+Plus or Ctrl+Plus (zoom in)
-    if ((state & GDK_CONTROL_MASK) && 
-        ((keyval == GDK_KEY_plus || keyval == GDK_KEY_KP_Add || keyval == GDK_KEY_equal) ||
-         ((state & GDK_SHIFT_MASK) && (keyval == GDK_KEY_plus || keyval == GDK_KEY_equal)))) {
-        data->terminal_font_scale *= 1.1;
-        if (data->terminal_font_scale > 3.0) data->terminal_font_scale = 3.0;
-        vte_terminal_set_font_scale(VTE_TERMINAL(data->terminal), data->terminal_font_scale);
-        return TRUE;
-    }
-    
-    // Check for Ctrl+Minus (zoom out)
-    if ((state & GDK_CONTROL_MASK) && (keyval == GDK_KEY_minus || keyval == GDK_KEY_KP_Subtract)) {
-        data->terminal_font_scale *= 0.9;
-        if (data->terminal_font_scale < 0.5) data->terminal_font_scale = 0.5;
-        vte_terminal_set_font_scale(VTE_TERMINAL(data->terminal), data->terminal_font_scale);
-        return TRUE;
-    }
-    
-    // Check for Ctrl+0 (reset zoom)
-    if ((state & GDK_CONTROL_MASK) && (keyval == GDK_KEY_0 || keyval == GDK_KEY_KP_0)) {
-        data->terminal_font_scale = 1.0;
-        vte_terminal_set_font_scale(VTE_TERMINAL(data->terminal), data->terminal_font_scale);
+        vte_terminal_set_font_scale(VTE_TERMINAL(data->terminal_left), data->terminal_font_scale_left);
         return TRUE;
     }
     
     return FALSE;
 }
 
-static void on_graph_double_click(GtkGestureClick *gesture, int n_press, double x, double y, gpointer user_data) {
+static gboolean on_terminal_key_left(GtkEventControllerKey *controller, guint keyval, guint keycode, GdkModifierType state, gpointer user_data) {
     AppData *data = (AppData *)user_data;
     
-    // Only respond to double-clicks
-    if (n_press != 2) {
-        return;
+    if ((state & GDK_CONTROL_MASK) && 
+        ((keyval == GDK_KEY_plus || keyval == GDK_KEY_KP_Add || keyval == GDK_KEY_equal) ||
+         ((state & GDK_SHIFT_MASK) && (keyval == GDK_KEY_plus || keyval == GDK_KEY_equal)))) {
+        data->terminal_font_scale_left *= 1.1;
+        if (data->terminal_font_scale_left > 3.0) data->terminal_font_scale_left = 3.0;
+        vte_terminal_set_font_scale(VTE_TERMINAL(data->terminal_left), data->terminal_font_scale_left);
+        return TRUE;
     }
     
-    if (!data->graph_maximized) {
-        // Maximize the graph (hide everything except paned widget and terminal)
-        data->graph_maximized = TRUE;
-        
-        // Hide IP/Routes row, but keep the paned widget (which contains the graph)
-        GtkWidget *child = gtk_widget_get_first_child(data->main_box);
-        while (child != NULL) {
-            GtkWidget *next = gtk_widget_get_next_sibling(child);
-            // Hide everything except paned, terminal_frame, and terminal_button_bar
-            if (child != data->paned && child != data->terminal_frame && child != data->terminal_button_bar) {
-                gtk_widget_set_visible(child, FALSE);
-            }
-            child = next;
-        }
-        
-        // Hide the PING/DIG section within the paned widget
-        GtkWidget *ping_dig_box = gtk_paned_get_start_child(GTK_PANED(data->paned));
-        if (ping_dig_box) {
-            gtk_widget_set_visible(ping_dig_box, FALSE);
-        }
-        
-        // Make graph take all paned space
-        gtk_paned_set_position(GTK_PANED(data->paned), 0);
-        
-    } else {
-        // Restore normal view
-        data->graph_maximized = FALSE;
-        
-        // Show all rows again
-        GtkWidget *child = gtk_widget_get_first_child(data->main_box);
-        while (child != NULL) {
-            GtkWidget *next = gtk_widget_get_next_sibling(child);
-            // Don't show terminal button bar unless needed
-            if (child != data->terminal_button_bar) {
-                gtk_widget_set_visible(child, TRUE);
-            }
-            child = next;
-        }
-        
-        // Show PING/DIG section again
-        GtkWidget *ping_dig_box = gtk_paned_get_start_child(GTK_PANED(data->paned));
-        if (ping_dig_box) {
-            gtk_widget_set_visible(ping_dig_box, TRUE);
-        }
-        
-        // Restore paned position
-        gtk_paned_set_position(GTK_PANED(data->paned), 300);
+    if ((state & GDK_CONTROL_MASK) && (keyval == GDK_KEY_minus || keyval == GDK_KEY_KP_Subtract)) {
+        data->terminal_font_scale_left *= 0.9;
+        if (data->terminal_font_scale_left < 0.5) data->terminal_font_scale_left = 0.5;
+        vte_terminal_set_font_scale(VTE_TERMINAL(data->terminal_left), data->terminal_font_scale_left);
+        return TRUE;
     }
+    
+    if ((state & GDK_CONTROL_MASK) && (keyval == GDK_KEY_0 || keyval == GDK_KEY_KP_0)) {
+        data->terminal_font_scale_left = 1.0;
+        vte_terminal_set_font_scale(VTE_TERMINAL(data->terminal_left), data->terminal_font_scale_left);
+        return TRUE;
+    }
+    
+    return FALSE;
+}
+
+// Terminal scroll and key handlers for right terminal
+static gboolean on_terminal_scroll_right(GtkEventControllerScroll *controller, double dx, double dy, gpointer user_data) {
+    AppData *data = (AppData *)user_data;
+    GdkModifierType state = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(controller));
+    
+    if (state & GDK_CONTROL_MASK) {
+        if (dy < 0) {
+            data->terminal_font_scale_right *= 1.1;
+        } else {
+            data->terminal_font_scale_right *= 0.9;
+        }
+        
+        if (data->terminal_font_scale_right < 0.5) data->terminal_font_scale_right = 0.5;
+        if (data->terminal_font_scale_right > 3.0) data->terminal_font_scale_right = 3.0;
+        
+        vte_terminal_set_font_scale(VTE_TERMINAL(data->terminal_right), data->terminal_font_scale_right);
+        return TRUE;
+    }
+    
+    return FALSE;
+}
+
+static gboolean on_terminal_key_right(GtkEventControllerKey *controller, guint keyval, guint keycode, GdkModifierType state, gpointer user_data) {
+    AppData *data = (AppData *)user_data;
+    
+    if ((state & GDK_CONTROL_MASK) && 
+        ((keyval == GDK_KEY_plus || keyval == GDK_KEY_KP_Add || keyval == GDK_KEY_equal) ||
+         ((state & GDK_SHIFT_MASK) && (keyval == GDK_KEY_plus || keyval == GDK_KEY_equal)))) {
+        data->terminal_font_scale_right *= 1.1;
+        if (data->terminal_font_scale_right > 3.0) data->terminal_font_scale_right = 3.0;
+        vte_terminal_set_font_scale(VTE_TERMINAL(data->terminal_right), data->terminal_font_scale_right);
+        return TRUE;
+    }
+    
+    if ((state & GDK_CONTROL_MASK) && (keyval == GDK_KEY_minus || keyval == GDK_KEY_KP_Subtract)) {
+        data->terminal_font_scale_right *= 0.9;
+        if (data->terminal_font_scale_right < 0.5) data->terminal_font_scale_right = 0.5;
+        vte_terminal_set_font_scale(VTE_TERMINAL(data->terminal_right), data->terminal_font_scale_right);
+        return TRUE;
+    }
+    
+    if ((state & GDK_CONTROL_MASK) && (keyval == GDK_KEY_0 || keyval == GDK_KEY_KP_0)) {
+        data->terminal_font_scale_right = 1.0;
+        vte_terminal_set_font_scale(VTE_TERMINAL(data->terminal_right), data->terminal_font_scale_right);
+        return TRUE;
+    }
+    
+    return FALSE;
 }
 
 static gboolean check_terminal_visibility(gpointer user_data) {
     AppData *data = (AppData *)user_data;
     
-    // Check if terminal frame is realized and mapped
     if (!gtk_widget_get_realized(data->terminal_frame)) {
         return G_SOURCE_CONTINUE;
     }
     
-    // Get the scrolled window's visible area
     GtkWidget *scrolled = GTK_WIDGET(gtk_widget_get_ancestor(data->main_box, GTK_TYPE_SCROLLED_WINDOW));
     if (scrolled == NULL) {
         return G_SOURCE_CONTINUE;
@@ -940,7 +1149,6 @@ static gboolean check_terminal_visibility(gpointer user_data) {
     double page_size = gtk_adjustment_get_page_size(vadj);
     double visible_bottom = scroll_value + page_size;
     
-    // Calculate terminal's position relative to the scrolled content
     int terminal_y = 0;
     GtkWidget *child = gtk_widget_get_first_child(data->main_box);
     while (child != NULL && child != data->terminal_frame) {
@@ -950,7 +1158,6 @@ static gboolean check_terminal_visibility(gpointer user_data) {
         child = gtk_widget_get_next_sibling(child);
     }
     
-    // Show button if terminal is completely below visible area
     gboolean terminal_hidden = (terminal_y >= visible_bottom);
     gtk_widget_set_visible(data->terminal_button_bar, terminal_hidden);
     
@@ -960,7 +1167,6 @@ static gboolean check_terminal_visibility(gpointer user_data) {
 static void on_terminal_button_clicked(GtkButton *button, gpointer user_data) {
     AppData *data = (AppData *)user_data;
     
-    // Scroll to terminal
     GtkWidget *scrolled = GTK_WIDGET(gtk_widget_get_ancestor(data->main_box, GTK_TYPE_SCROLLED_WINDOW));
     if (scrolled != NULL) {
         GtkAdjustment *vadj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(scrolled));

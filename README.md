@@ -1,6 +1,6 @@
 # Dave's Network Inquisition
 
-**Development Version: v1.0-dev-2025-01-13**
+**Development Version: v1.0-dev-2025-01-14**
 
 A comprehensive GTK4-based network monitoring and diagnostic tool for Linux systems.
 
@@ -12,22 +12,52 @@ A comprehensive GTK4-based network monitoring and diagnostic tool for Linux syst
 - 🗺️ **IP Route Information** - Display routing table (auto-refresh every 30s)
 - 📶 **PING Tool** - Test network connectivity with live output and history
 - 🔍 **DIG Tool** - DNS lookup functionality with detailed results
-- 📊 **Network Bandwidth Graph** - Real-time visualization of RX/TX traffic (60-second rolling window)
-- 💻 **Embedded Terminal** - Full VTE terminal with font zoom support
+- 📊 **Network Bandwidth Graph** - Real-time visualization of RX/TX traffic with **total bytes sent/received** (60-second rolling window)
+- 💻 **Split Terminal** - Two side-by-side terminals with independent font zoom support
 
 ### Advanced Features
 
 - **Resizable Panes** - Drag the separator between PING/DIG and the graph to adjust sizes
-- **Graph Maximization** - Double-click the Network SEND/RECEIVE frame to maximize it (hides everything except graph and terminal). Double-click again to restore.
+- **Individual Panel Maximization** - Double-click any frame to maximize/restore:
+  - **IP ADDRESS INFO** - Maximizes to show only IP info and terminal
+  - **IP ROUTE INFO** - Maximizes to show only route info and terminal
+  - **PING** - Maximizes to show only PING and terminal
+  - **DIG** - Maximizes to show only DIG and terminal
+  - **Network SEND/RECEIVE** - Takes 50% of screen, terminal takes other 50%
 - **Live PING Output** - See each ping response as it arrives
 - **Command History** - PING and DIG results are appended with clear separators
 - **Green Button Flash** - Visual feedback when GO buttons are clicked or Enter is pressed
-- **Terminal Font Zoom** - Ctrl+Scroll, Ctrl+Plus, Ctrl+Minus, Ctrl+0 to reset
+- **Terminal Font Zoom** - Ctrl+Scroll, Ctrl+Plus, Ctrl+Minus, Ctrl+0 to reset (works independently on left and right terminals)
 - **Terminal Visibility Button** - Automatically appears at bottom when terminal scrolls out of view
+- **Enhanced Graph Display** - Larger font size (14pt) and total bytes transferred shown
 
 ## Requirements
 
 ### Ubuntu/Debian:
+
+**Note for Ubuntu 24.04 (Noble) users:** If you encounter dependency version conflicts, you may need to enable the `noble-updates` repository:
+
+```bash
+# Edit your sources file
+sudo nano /etc/apt/sources.list.d/ubuntu.sources
+```
+
+Add these lines at the end:
+```
+Types: deb
+URIs: http://us.archive.ubuntu.com/ubuntu/
+Suites: noble-updates
+Components: main restricted
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+```
+
+Save (Ctrl+X, Y, Enter), then update:
+
+```bash
+sudo apt update
+```
+
+**Install dependencies:**
 ```bash
 sudo apt install build-essential libgtk-4-dev libvte-2.91-gtk4-dev pkg-config
 ```
